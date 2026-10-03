@@ -46,6 +46,7 @@
 #include "cmdlib.h"
 #include "d_main.h"
 #include "texturemanager.h"
+#include "m_joy.h"
 FString G_BuildSaveName(const char* prefix);   // common/menu/savegamemanager.cpp
 
 FARG_CUSTOM(hdbridge, "-hdbridge", "Other", true,
@@ -203,7 +204,7 @@ bool HDB_Init() {
 	vid_activeinbackground = true;
 	AddCommandString("freelook 1; i_pauseinbackground 0; i_soundinbackground 1; "
 		"gl_bloom 0; gl_tonemap 0; gl_ssao 0; gl_fxaa 0; gl_lens 0; "
-		"vid_contrast 1; vid_saturation 1; vid_gamma 1; vid_brightness 0; "
+		"vid_contrast 1; vid_saturation 1; vid_gamma 1; vid_brightness 0; use_joystick 1; "
 		"vid_scalemode 0; vid_scalefactor 1; "
 		// each frame is drawn twice (HDB_CaptureFrame): 120 drawings, 60 frames
 		"vid_vsync 0; vid_maxfps 120");
@@ -211,10 +212,24 @@ bool HDB_Init() {
 	return true;
 }
 
+// The window stays hidden, so it is never the active one: controllers that
+// can (XInput pads, on Windows) are read in the background, where Halo leaves
+// them to Halo Doom while Doom drives. Again every two seconds, for pads
+// plugged in later.
+static void ControllersInBackground() {
+	TArray<IJoystickConfig*> sticks;
+	I_GetJoysticks(sticks);
+	for (auto stick : sticks)
+		if (stick->AllowsEnabledInBackground() && !stick->GetEnabledInBackground())
+			stick->SetEnabledInBackground(true);
+}
+
 // End of I_StartTic (both backends): runs before events become ticcmds.
 void HDB_PumpInput() {
 	if (!g_shm) return;
 	if (g_hide_tries > 0) { --g_hide_tries; HideOwnWindows(); }
+	static int pad_check = 0;
+	if (pad_check-- <= 0) { ControllersInBackground(); pad_check = 70; }
 
 	// Halo reinitialises the memory when it restarts while we keep running:
 	// re-announce ourselves.
