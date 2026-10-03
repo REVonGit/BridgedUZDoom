@@ -19,7 +19,9 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
-#include <SDL2/SDL.h>
+#ifndef __APPLE__
+#include <SDL2/SDL.h>      // the SDL backend; macOS uses its own Cocoa one
+#endif
 #endif
 #include <chrono>
 #include <cmath>
@@ -133,6 +135,8 @@ BOOL CALLBACK HideOwnWindow(HWND hwnd, LPARAM) {
 	return TRUE;
 }
 void HideOwnWindows() { EnumWindows(HideOwnWindow, 0); }
+#elif defined(__APPLE__)
+void HideOwnWindows() {}   // not a bridge platform (Halo's port runs on Windows and Linux)
 #else
 void HideOwnWindows() {
 	// UZDoom creates one SDL window; window IDs start at 1.
