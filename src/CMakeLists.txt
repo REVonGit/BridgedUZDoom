@@ -799,6 +799,7 @@ set (PCH_SOURCES
 	ct_chat.cpp
 	d_iwad.cpp
 	d_main.cpp
+	halobridge/hdb_native.cpp
 	d_defcvars.cpp
 	d_anonstats.cpp
 	d_net.cpp

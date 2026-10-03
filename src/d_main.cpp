@@ -121,6 +121,7 @@
 
 #ifdef __unix__
 #include "i_system.h"  // for SHARE_DIR
+#include "halobridge/halobridge.h"
 #endif // __unix__
 
 using namespace FileSys;
@@ -1614,6 +1615,7 @@ void D_DoomLoop ()
 			I_StartTic ();
 			D_ProcessEvents();
 			D_Display ();
+			HDB_CaptureFrame();	// HaloDoom bridge
 			S_UpdateMusic();
 
 			if (gameloop_abort)
@@ -3705,6 +3707,8 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 		delete exec;
 		exec = NULL;
 	}
+
+	if (!restart) HDB_Init();	// HaloDoom bridge: no-op without -hdbridge
 
 	// [RH] Initialize localizable strings.
 	GStrings.LoadStrings(fileSystem, language);

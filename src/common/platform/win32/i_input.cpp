@@ -63,6 +63,7 @@
 #include "cmdlib.h"
 #include "i_mainwindow.h"
 #include "m_haptics.h"
+#include "halobridge/halobridge.h"
 
 // Compensate for w32api's lack
 #ifndef GET_XBUTTON_WPARAM
@@ -604,6 +605,7 @@ void I_StartTic ()
 	I_CheckNativeMouse (false, EventHandlerResultForNativeMouse);
 	I_GetEvent ();
 	Joy_RumbleTick();
+	HDB_PumpInput();	// HaloDoom bridge
 }
 
 //

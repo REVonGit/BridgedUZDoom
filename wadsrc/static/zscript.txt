@@ -2,6 +2,7 @@ version "5.0.0"
 
 // Generic engine code
 #include "zscript/engine/base.zs"
+#include "zscript/halobridge.zs"
 #include "zscript/engine/dynarrays.zs"
 #include "zscript/engine/maps.zs"
 #include "zscript/engine/dictionary.zs"

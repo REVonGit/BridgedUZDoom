@@ -43,6 +43,7 @@
 #include "utf8.h"
 #include "v_video.h"
 #include "version.h"
+#include "halobridge/halobridge.h"
 
 bool GUICapture;
 static bool NativeMouse = true;
@@ -687,6 +688,7 @@ void I_StartTic ()
 	I_CheckNativeMouse ();
 	I_GetEvent ();
 	Joy_RumbleTick();
+	HDB_PumpInput();	// HaloDoom bridge
 }
 
 void I_ProcessJoysticks ();
