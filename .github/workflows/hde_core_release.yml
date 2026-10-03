@@ -1,0 +1,58 @@
+name: HDE Core Release
+
+# Each successful Continuous Integration run of trunk (a push) becomes a GitHub
+# release named "HDE Core Release <run number>", tagged hde-core-<run number>
+# and marked latest, with the Windows, Linux and macOS release builds zipped.
+# Only the newest five hde-core-* releases are kept.
+#
+# This is the HaloDoom bridge's own release, beside upstream's (which stays
+# off in this fork: PUBLISH_RELEASES is unset).
+
+on:
+  workflow_run:
+    workflows: [Continuous Integration]
+    types: [completed]
+    branches: [trunk]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      MESSAGE: ${{ github.event.workflow_run.head_commit.message }}
+    steps:
+      - name: Package
+        run: |
+          mkdir release
+          for build in "Windows Release:hde-core-windows" "Linux Release:hde-core-linux" "MacOS Release:hde-core-macos"; do
+            artifact="${build%%:*}"; name="${build##*:}"
+            gh run download "$RUN_ID" -n "$artifact" -D "pkg/$name"
+            (cd "pkg/$name" && zip -qr "$GITHUB_WORKSPACE/release/$name.zip" .)
+          done
+          ls -l release
+
+      - name: Publish
+        run: |
+          tag="hde-core-$RUN_NUMBER"
+          subject="$(printf '%s' "${MESSAGE:-manual run}" | head -n 1)"
+          printf '%s\n\nCommit: %s/%s/commit/%s\nBuild: %s/%s/actions/runs/%s\n\nUZDoom with the HaloDoom bridge (-hdbridge). On Windows, put uzdoom.exe where sUZDoom in hdbridge.ini points.\n' \
+            "$subject" "$GITHUB_SERVER_URL" "$GH_REPO" "$SHA" "$GITHUB_SERVER_URL" "$GH_REPO" "$RUN_ID" > notes.md
+          gh release create "$tag" release/*.zip --target "$SHA" --latest \
+            --title "HDE Core Release $RUN_NUMBER (${SHA:0:7})" --notes-file notes.md
+
+      - name: Keep the last five
+        run: |
+          gh release list --limit 100 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("hde-core-"))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' |
+          while read -r tag; do
+            gh release delete "$tag" --cleanup-tag --yes
+          done
