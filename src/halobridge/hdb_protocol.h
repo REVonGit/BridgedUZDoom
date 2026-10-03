@@ -172,7 +172,15 @@ enum hdb_event_type {
     HDB_EV_CHECKPOINT_SAVED = 2,
     HDB_EV_REVERTED         = 3,
     HDB_EV_MAP_LOADED       = 4,
-    HDB_EV_PLAYER_KILLED    = 5,  /* kill volume, scripted death, etc. */
+    HDB_EV_PLAYER_KILLED    = 5,  /* the player's unit died in Halo: Doom's dies too */
+    HDB_EV_PLAYER_VITALITY  = 6,  /* source.x shields, source.y body, as fractions of the
+                                     unit's maxima (shields above 1 overshielded): Halo
+                                     keeps them; Halo Doom shows them */
+    HDB_EV_LOADOUT_BEGIN    = 7,  /* a level starts: Doom's weapons and grenades go... */
+    HDB_EV_LOADOUT_ITEM     = 8,  /* ...for these: dtype_hash the tag, amount the reserve
+                                     rounds (or grenade count), source = (rounds loaded,
+                                     charge 0..1, 1 if in hand) */
+    HDB_EV_LOADOUT_END      = 9,
     /* Doom -> Halo */
     HDB_EV_DOOM_PLAYER_DIED = 100,
     HDB_EV_DOOM_TOOK_ITEM   = 101 /* dtype_hash = the item's entity_id: Halo removes it */

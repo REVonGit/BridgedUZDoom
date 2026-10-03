@@ -602,7 +602,9 @@ DEFINE_ACTION_FUNCTION(_HaloBridge, PopHaloEvent)
 	if (numret > 1) ret[1].SetFloat(ev.amount);
 	if (numret > 2) ret[2].SetInt((int)ev.dtype_hash);
 	if (numret > 3) ret[3].SetVector(ToDoomPos(ev.source));
-	return numret < 4 ? numret : 4;
+	// the same three numbers as sent, for events whose "source" isn't a place
+	if (numret > 4) ret[4].SetVector(DVector3(ev.source.x, ev.source.y, ev.source.z));
+	return numret < 5 ? numret : 5;
 }
 
 DEFINE_ACTION_FUNCTION(_HaloBridge, PushDoomEvent)

@@ -20,7 +20,7 @@ struct HaloBridge native
 	native static void PushDoomEvent(int type, int arg = 0);   // arg: an item's entity id
 
 	// type (0 = none), amount, dtypeHash, source
-	native static int, double, int, Vector3 PopHaloEvent();
+	native static int, double, int, Vector3, Vector3 PopHaloEvent();   // type, amount, dtypeHash, source (doom units), source as sent
 
 	native static int RequestRay(Vector3 from, Vector3 to, bool objects);
 	// reqId (0 = none), hit, entity, point, normal
