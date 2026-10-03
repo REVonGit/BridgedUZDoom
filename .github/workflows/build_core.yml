@@ -273,8 +273,18 @@ jobs:
         echo ::endgroup::
 
         echo ::group::Build
-        cmake --build build --config $BUILD_TYPE
+        # on failure, the error lines also go into one annotation, which the
+        # GitHub API can read without the full log
+        set +e
+        cmake --build build --config $BUILD_TYPE 2>&1 | tee build-output.log
+        status=${PIPESTATUS[0]}
+        set -e
         echo ::endgroup::
+        if [ "$status" -ne 0 ]; then
+          message=$(grep -E "error|FAILED|undefined" build-output.log | head -80 | cut -c1-400 | awk '{gsub(/%/,"%25"); gsub(/\r/,""); printf "%s%%0A", $0}')
+          echo "::error title=Build errors::${message}"
+          exit "$status"
+        fi
 
         echo ::group::Cache Stats
         ccache --evict-older-than $((SECONDS+10))s
