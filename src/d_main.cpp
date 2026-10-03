@@ -118,10 +118,10 @@
 #include "wi_stuff.h"
 #include "wipe.h"
 #include "zwidget/window/window.h"
+#include "halobridge/halobridge.h"
 
 #ifdef __unix__
 #include "i_system.h"  // for SHARE_DIR
-#include "halobridge/halobridge.h"
 #endif // __unix__
 
 using namespace FileSys;
