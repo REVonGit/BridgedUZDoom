@@ -67,7 +67,9 @@ enum hdb_halo_flags {
 enum hdb_proxy_flags {
     HDB_PF_ALIVE   = 1u << 0,
     HDB_PF_ENEMY   = 1u << 1,       /* hostile to the player's team */
-    HDB_PF_VEHICLE = 1u << 2
+    HDB_PF_VEHICLE = 1u << 2,
+    HDB_PF_ITEM    = 1u << 3        /* a weapon or equipment lying in reach, not a unit:
+                                       kind_hash its tag, health_frac its rounds (or 1) */
 };
 
 typedef struct {
@@ -108,7 +110,9 @@ typedef struct {
 enum hdb_doom_flags {
     HDB_DS_READY       = 1u << 0,   /* bridge pk3 is running on HDBVOID */
     HDB_DS_PLAYER_DEAD = 1u << 1,
-    HDB_DS_CROUCHING   = 1u << 2
+    HDB_DS_CROUCHING   = 1u << 2,
+    HDB_DS_MENU        = 1u << 3    /* UZDoom's menu or console is open: Halo's clock
+                                       stops, and every key but F11/F12 goes to Doom */
 };
 
 typedef struct {
@@ -170,7 +174,8 @@ enum hdb_event_type {
     HDB_EV_MAP_LOADED       = 4,
     HDB_EV_PLAYER_KILLED    = 5,  /* kill volume, scripted death, etc. */
     /* Doom -> Halo */
-    HDB_EV_DOOM_PLAYER_DIED = 100
+    HDB_EV_DOOM_PLAYER_DIED = 100,
+    HDB_EV_DOOM_TOOK_ITEM   = 101 /* dtype_hash = the item's entity_id: Halo removes it */
 };
 
 typedef struct { uint32_t type; float amount; uint32_t dtype_hash; hdb_vec3 source; } hdb_event;

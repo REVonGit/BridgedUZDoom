@@ -17,7 +17,7 @@ struct HaloBridge native
 	native static void PushMove(int tick, Vector3 delta);
 	native static void PublishDoom(int tick, int flags, double angle, double pitch, double health, double armor);
 	native static void PushDamage(int target, double amount, int dtypeHash, Vector3 origin, Vector3 dir, int flags);
-	native static void PushDoomEvent(int type);
+	native static void PushDoomEvent(int type, int arg = 0);   // arg: an item's entity id
 
 	// type (0 = none), amount, dtypeHash, source
 	native static int, double, int, Vector3 PopHaloEvent();

@@ -47,6 +47,10 @@
 #include "d_main.h"
 #include "texturemanager.h"
 #include "m_joy.h"
+#include "menustate.h"
+#include "d_gui.h"
+#include "c_console.h"
+#include "filesystem.h"
 FString G_BuildSaveName(const char* prefix);   // common/menu/savegamemanager.cpp
 
 FARG_CUSTOM(hdbridge, "-hdbridge", "Other", true,
@@ -58,6 +62,7 @@ FARG_CUSTOM(hdbridge_flip, "-hdbridge-flip", "Other", true,
 	"Flip the captured overlay vertically.", "", "");
 
 EXTERN_CVAR(Bool, vid_activeinbackground)
+extern bool GUICapture;   // the platform's input code: a menu or the console has the keyboard
 
 namespace {
 
@@ -72,6 +77,7 @@ hdb_halo_state  g_halo{};          // per-tic snapshot
 bool            g_halo_valid = false;
 uint32_t        g_ray_seq = 1;
 std::unordered_set<int> g_keys_down;
+uint32_t        g_menu_flag = 0;    // HDB_DS_MENU while UZDoom's menu or console is open
 
 constexpr double kPi = 3.14159265358979323846;
 
@@ -154,7 +160,66 @@ void HideOwnWindows() {
 
 // ---- input ---------------------------------------------------------------
 
+// A key as a menu or the console takes it (as the platform's input code
+// posts it while GUICapture is on): the menu key or character, with the
+// modifiers held, and the character typed. US layout.
+struct GuiKey { int8_t dik; int gk; char plain, shifted; };
+const GuiKey kGuiKeys[] = {
+	{0x01, GK_ESCAPE, 0, 0}, {0x0E, GK_BACKSPACE, 0, 0}, {0x0F, GK_TAB, 0, 0}, {0x1C, GK_RETURN, 0, 0},
+	{0x3B, GK_F1, 0, 0}, {0x3C, GK_F2, 0, 0}, {0x3D, GK_F3, 0, 0}, {0x3E, GK_F4, 0, 0}, {0x3F, GK_F5, 0, 0},
+	{0x40, GK_F6, 0, 0}, {0x41, GK_F7, 0, 0}, {0x42, GK_F8, 0, 0}, {0x43, GK_F9, 0, 0}, {0x44, GK_F10, 0, 0},
+	{0x57, GK_F11, 0, 0}, {0x58, GK_F12, 0, 0},
+	{0x02, 0, '1', '!'}, {0x03, 0, '2', '@'}, {0x04, 0, '3', '#'}, {0x05, 0, '4', '$'}, {0x06, 0, '5', '%'},
+	{0x07, 0, '6', '^'}, {0x08, 0, '7', '&'}, {0x09, 0, '8', '*'}, {0x0A, 0, '9', '('}, {0x0B, 0, '0', ')'},
+	{0x0C, 0, '-', '_'}, {0x0D, 0, '=', '+'}, {0x1A, 0, '[', '{'}, {0x1B, 0, ']', '}'}, {0x27, 0, ';', ':'},
+	{0x28, 0, '\'', '"'}, {0x29, 0, '`', '~'}, {0x2B, 0, '\\', '|'}, {0x33, 0, ',', '<'}, {0x34, 0, '.', '>'},
+	{0x35, 0, '/', '?'}, {0x39, 0, ' ', ' '},
+	{0x10, 0, 'q', 'Q'}, {0x11, 0, 'w', 'W'}, {0x12, 0, 'e', 'E'}, {0x13, 0, 'r', 'R'}, {0x14, 0, 't', 'T'},
+	{0x15, 0, 'y', 'Y'}, {0x16, 0, 'u', 'U'}, {0x17, 0, 'i', 'I'}, {0x18, 0, 'o', 'O'}, {0x19, 0, 'p', 'P'},
+	{0x1E, 0, 'a', 'A'}, {0x1F, 0, 's', 'S'}, {0x20, 0, 'd', 'D'}, {0x21, 0, 'f', 'F'}, {0x22, 0, 'g', 'G'},
+	{0x23, 0, 'h', 'H'}, {0x24, 0, 'j', 'J'}, {0x25, 0, 'k', 'K'}, {0x26, 0, 'l', 'L'},
+	{0x2C, 0, 'z', 'Z'}, {0x2D, 0, 'x', 'X'}, {0x2E, 0, 'c', 'C'}, {0x2F, 0, 'v', 'V'}, {0x30, 0, 'b', 'B'},
+	{0x31, 0, 'n', 'N'}, {0x32, 0, 'm', 'M'},
+};
+const struct { int dik, gk; } kGuiExtended[] = {
+	{0x9C, GK_RETURN}, {0xC8, GK_UP}, {0xD0, GK_DOWN}, {0xCB, GK_LEFT}, {0xCD, GK_RIGHT},
+	{0xC7, GK_HOME}, {0xCF, GK_END}, {0xC9, GK_PGUP}, {0xD1, GK_PGDN}, {0xD3, GK_DEL},
+};
+
+bool Held(int key) { return g_keys_down.count(key) != 0; }
+
+void PostGuiKey(int key, bool down) {
+	int gk = 0;
+	char ch = 0;
+	const bool shift = Held(0x2A) || Held(0x36);
+	for (auto& k : kGuiKeys)
+		if ((uint8_t)k.dik == key) { gk = k.gk; ch = shift ? k.shifted : k.plain; break; }
+	for (auto& k : kGuiExtended)
+		if (k.dik == key) gk = k.gk;
+	if (!gk && !ch) return;   // modifiers and the rest: only their state matters
+
+	event_t ev = {};
+	ev.type = EV_GUI_Event;
+	ev.subtype = down ? EV_GUI_KeyDown : EV_GUI_KeyUp;
+	ev.data1 = (int16_t)(gk ? gk : toupper((unsigned char)ch));
+	ev.data3 = (shift ? GKM_SHIFT : 0) | ((Held(0x1D) || Held(0x9D)) ? GKM_CTRL : 0) |
+		((Held(0x38) || Held(0xB8)) ? GKM_ALT : 0);
+	D_PostEvent(&ev);
+	if (down && ch) {
+		event_t typed = {};
+		typed.type = EV_GUI_Event;
+		typed.subtype = EV_GUI_Char;
+		typed.data1 = (int16_t)(unsigned char)ch;
+		D_PostEvent(&typed);
+	}
+}
+
 void PostKey(int key, bool down) {
+	if (key < KEY_MOUSE1 && GUICapture) {
+		if (down) g_keys_down.insert(key); else g_keys_down.erase(key);
+		PostGuiKey(key, down);
+		return;
+	}
 	event_t ev = {};
 	ev.type = down ? EV_KeyDown : EV_KeyUp;
 	ev.data1 = (int16_t)key;
@@ -204,10 +269,27 @@ bool HDB_Init() {
 	vid_activeinbackground = true;
 	AddCommandString("freelook 1; i_pauseinbackground 0; i_soundinbackground 1; "
 		"gl_bloom 0; gl_tonemap 0; gl_ssao 0; gl_fxaa 0; gl_lens 0; "
-		"vid_contrast 1; vid_saturation 1; vid_gamma 1; vid_brightness 0; use_joystick 1; "
+		"vid_contrast 1; vid_saturation 1; vid_gamma 1; use_joystick 1; "
 		"vid_scalemode 0; vid_scalefactor 1; "
 		// each frame is drawn twice (HDB_CaptureFrame): 120 drawings, 60 frames
 		"vid_vsync 0; vid_maxfps 120");
+	// hdbridge.cfg in HaloDoomBridge.pk3: the controls and settings bridge
+	// play needs (Halo Doom sets no default keys; the gametype), every start
+	{
+		int lump = fileSystem.CheckNumForFullName("hdbridge.cfg");
+		if (lump >= 0) {
+			auto data = fileSystem.ReadFile(lump);
+			FString text(data.string(), data.size());
+			int lines = 0;
+			for (auto& line : text.Split("\n")) {
+				line.StripLeftRight();
+				if (line.IsEmpty() || line[0] == '#' || line.IndexOf("//") == 0) continue;
+				AddCommandString(line.GetChars());
+				lines++;
+			}
+			Printf("HaloDoomBridge: ran hdbridge.cfg (%d lines)\n", lines);
+		}
+	}
 	Printf("HaloDoomBridge: attached to Halo (pid %u)\n", g_shm->halo_pid);
 	return true;
 }
@@ -230,6 +312,20 @@ void HDB_PumpInput() {
 	if (g_hide_tries > 0) { --g_hide_tries; HideOwnWindows(); }
 	static int pad_check = 0;
 	if (pad_check-- <= 0) { ControllersInBackground(); pad_check = 70; }
+
+	// Alive, every tic, even while a menu has the game paused (the game's
+	// own tick, which publishes the rest, stops then)
+	g_shm->doom_heartbeat = g_shm->doom_heartbeat + 1;
+
+	// UZDoom's menu or console: Halo stops its clock and sends every key here
+	const uint32_t menu = (menuactive != MENU_Off || ConsoleState == c_down || ConsoleState == c_falling)
+		? (uint32_t)HDB_DS_MENU : 0u;
+	if (menu != g_menu_flag) {
+		g_menu_flag = menu;
+		hdb::seq_write(g_shm->doom, [&](hdb_doom_state& d) {
+			d.flags = (d.flags & ~(uint32_t)HDB_DS_MENU) | menu;
+		});
+	}
 
 	// Halo reinitialises the memory when it restarts while we keep running:
 	// re-announce ourselves.
@@ -464,13 +560,12 @@ DEFINE_ACTION_FUNCTION(_HaloBridge, PublishDoom)
 	if (g_shm) {
 		hdb::seq_write(g_shm->doom, [&](hdb_doom_state& d) {
 			d.doom_tick = (uint32_t)tick;
-			d.flags = (uint32_t)flags;
+			d.flags = (uint32_t)flags | g_menu_flag;
 			d.yaw = float(angle * kPi / 180.0);
 			d.pitch = float(-pitch * kPi / 180.0);
 			d.health = float(health);
 			d.armor = float(armor);
 		});
-		g_shm->doom_heartbeat = g_shm->doom_heartbeat + 1;
 	}
 	return 0;
 }
@@ -514,8 +609,9 @@ DEFINE_ACTION_FUNCTION(_HaloBridge, PushDoomEvent)
 {
 	PARAM_PROLOGUE;
 	PARAM_INT(type);
+	PARAM_INT(arg);
 	if (g_shm) {
-		hdb_event ev{ (uint32_t)type, 0.f, 0, {} };
+		hdb_event ev{ (uint32_t)type, 0.f, (uint32_t)arg, {} };
 		hdb::ring_push(g_shm->doom_events, ev);
 	}
 	return 0;
