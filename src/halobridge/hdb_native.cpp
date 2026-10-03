@@ -43,6 +43,7 @@
 #include "m_png.h"
 #include "printf.h"
 #include "g_game.h"
+#include "cmdlib.h"
 #include "d_main.h"
 #include "texturemanager.h"
 FString G_BuildSaveName(const char* prefix);   // common/menu/savegamemanager.cpp
@@ -545,16 +546,30 @@ DEFINE_ACTION_FUNCTION(_HaloBridge, HashName)
 // Checkpoints mirror Halo's: Doom saves when Halo saves, loads when Halo reverts.
 // Called straight into the game (not through the console), because save and
 // load are unsafe console commands that may be refused inside a script call.
+// Halo's checkpoints: a Doom save beside each, loaded when Halo reverts, so
+// Halo Doom's weapons, ammo, shields and health go back with the world.
 DEFINE_ACTION_FUNCTION(_HaloBridge, SaveCheckpoint)
 {
 	PARAM_PROLOGUE;
-	if (g_shm) G_SaveGame(G_BuildSaveName("hdb_checkpoint").GetChars(), "Halo checkpoint");
+	if (g_shm) {
+		FString name = G_BuildSaveName("hdb_checkpoint");
+		Printf("HaloDoomBridge: Halo checkpoint: saving %s\n", name.GetChars());
+		G_SaveGame(name.GetChars(), "Halo checkpoint");
+	}
 	return 0;
 }
 
+// false if there is no save to load (the caller brings the player back instead)
 DEFINE_ACTION_FUNCTION(_HaloBridge, LoadCheckpoint)
 {
 	PARAM_PROLOGUE;
-	if (g_shm) G_LoadGame(G_BuildSaveName("hdb_checkpoint").GetChars(), true);
-	return 0;
+	if (!g_shm) ACTION_RETURN_BOOL(false);
+	FString name = G_BuildSaveName("hdb_checkpoint");
+	if (!FileExists(name.GetChars())) {
+		Printf("HaloDoomBridge: Halo reverted, but there is no %s\n", name.GetChars());
+		ACTION_RETURN_BOOL(false);
+	}
+	Printf("HaloDoomBridge: Halo reverted: loading %s\n", name.GetChars());
+	G_LoadGame(name.GetChars(), true);
+	ACTION_RETURN_BOOL(true);
 }

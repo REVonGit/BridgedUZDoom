@@ -28,5 +28,5 @@ struct HaloBridge native
 
 	native static int HashName(String s);
 	native static void SaveCheckpoint();
-	native static void LoadCheckpoint();
+	native static bool LoadCheckpoint();   // false: no save yet
 }
