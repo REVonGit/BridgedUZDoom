@@ -10,6 +10,7 @@
 // Hooks (one line each):
 //   d_main.cpp   D_DoomMain, after command-line commands run:  HDB_Init();
 //   d_main.cpp   D_DoomLoop, right after D_Display():          HDB_CaptureFrame();
+//                (which draws the frame a second time: see there)
 //   win32/i_input.cpp and posix/sdl/i_input.cpp,
 //                end of I_StartTic():                          HDB_PumpInput();
 #ifdef _WIN32
@@ -23,6 +24,7 @@
 #include <SDL2/SDL.h>      // the SDL backend; macOS uses its own Cocoa one
 #endif
 #endif
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -41,6 +43,8 @@
 #include "m_png.h"
 #include "printf.h"
 #include "g_game.h"
+#include "d_main.h"
+#include "texturemanager.h"
 FString G_BuildSaveName(const char* prefix);   // common/menu/savegamemanager.cpp
 
 FARG_CUSTOM(hdbridge, "-hdbridge", "Other", true,
@@ -198,8 +202,10 @@ bool HDB_Init() {
 	vid_activeinbackground = true;
 	AddCommandString("freelook 1; i_pauseinbackground 0; i_soundinbackground 1; "
 		"gl_bloom 0; gl_tonemap 0; gl_ssao 0; gl_fxaa 0; gl_lens 0; "
-		"vid_contrast 1; vid_saturation 1; vid_scalemode 0; vid_scalefactor 1; "
-		"vid_vsync 0; vid_maxfps 60");
+		"vid_contrast 1; vid_saturation 1; vid_gamma 1; vid_brightness 0; "
+		"vid_scalemode 0; vid_scalefactor 1; "
+		// each frame is drawn twice (HDB_CaptureFrame): 120 drawings, 60 frames
+		"vid_vsync 0; vid_maxfps 120");
 	Printf("HaloDoomBridge: attached to Halo (pid %u)\n", g_shm->halo_pid);
 	return true;
 }
@@ -237,20 +243,75 @@ void HDB_PumpInput() {
 
 // Right after D_Display(): the same point UZDoom's own screenshots read the
 // finished frame from, on both the OpenGL and Vulkan backends.
+//
+// The overlay needs to know how see-through every pixel is: Halo Doom's HUD
+// has translucent panels, its weapon sprites soft edges, its effects glow.
+// A colour key can't tell those apart from the void, and they come out tinted
+// with it. So the frame is drawn twice, the void (texture HDBKEY) black for
+// the first and white for the second: a pixel's opacity is how little it
+// changed, and its own colour what it is over black divided by that. The
+// void is empty, so the second drawing is cheap. Time stays the frame's own
+// for both (I_SetFrameTime runs once per loop), so they match exactly.
+//
+// A HaloDoomBridge.pk3 without the black and white textures (HDBKEYB,
+// HDBKEYW) gets the old colour key instead.
+
+namespace {
+
+int         g_void_mode = 0;        // 0 not looked yet, 1 black and white, -1 colour key
+FTextureID  g_void_tex, g_black_tex, g_white_tex;
+
+struct Frame { TArray<uint8_t> buf; int pitch = 0, bpp = 0; uint32_t w = 0, h = 0; };
+
+bool ReadFrame(Frame& f) {
+	ESSType type = SS_RGB;
+	float gamma = 1.f;
+	f.buf = screen->GetScreenshotBuffer(f.pitch, type, gamma);
+	if (f.buf.Size() == 0 || f.pitch <= 0) return false;
+	if (type != SS_RGB && type != SS_BGRA) return false;
+	f.bpp = type == SS_BGRA ? 4 : 3;
+	f.w = uint32_t(f.pitch / f.bpp);
+	f.h = uint32_t(f.buf.Size() / f.pitch);
+	return f.w > 0 && f.h > 0;
+}
+
+inline void Rgb(const Frame& f, uint32_t x, uint32_t y, int& r, int& g, int& b) {
+	const uint8_t* s = f.buf.Data() + (g_flip ? (f.h - 1 - y) : y) * f.pitch + x * f.bpp;
+	r = f.bpp == 4 ? s[2] : s[0]; g = s[1]; b = f.bpp == 4 ? s[0] : s[2];
+}
+
+void LookUpVoid() {
+	g_void_tex  = TexMan.CheckForTexture("HDBKEY",  ETextureType::Any);
+	g_black_tex = TexMan.CheckForTexture("HDBKEYB", ETextureType::Any);
+	g_white_tex = TexMan.CheckForTexture("HDBKEYW", ETextureType::Any);
+	g_void_mode = g_void_tex.isValid() && g_black_tex.isValid() && g_white_tex.isValid() ? 1 : -1;
+	if (g_void_mode == 1) {
+		TexMan.SetTranslation(g_void_tex, g_black_tex);   // from the next frame on
+		Printf("HaloDoomBridge: overlay with true transparency\n");
+	} else {
+		Printf("HaloDoomBridge: HaloDoomBridge.pk3 has no HDBKEYB/HDBKEYW: overlay by colour key\n");
+	}
+}
+
+} // namespace
+
 void HDB_CaptureFrame() {
 	if (!g_shm || !screen) return;
 	hdb_overlay& o = g_shm->overlay;
 
-	int pitch = 0;
-	ESSType type = SS_RGB;
-	float gamma = 1.f;
-	TArray<uint8_t> buf = screen->GetScreenshotBuffer(pitch, type, gamma);
-	if (buf.Size() == 0 || pitch <= 0) return;
-	const int bpp = type == SS_BGRA ? 4 : 3;
-	if (type != SS_RGB && type != SS_BGRA) return;
+	if (g_void_mode == 0) { LookUpVoid(); if (g_void_mode == 1) return; }
 
-	uint32_t w = uint32_t(pitch / bpp);
-	uint32_t h = uint32_t(buf.Size() / pitch);
+	Frame first, second;
+	if (!ReadFrame(first)) return;
+	if (g_void_mode == 1) {
+		// this frame was drawn over black; again over white
+		TexMan.SetTranslation(g_void_tex, g_white_tex);
+		D_Display();
+		TexMan.SetTranslation(g_void_tex, g_black_tex);
+		if (!ReadFrame(second) || second.w != first.w || second.h != first.h) return;
+	}
+
+	uint32_t w = first.w, h = first.h;
 	if (w > HDB_OVERLAY_MAX_W) w = HDB_OVERLAY_MAX_W;
 	if (h > HDB_OVERLAY_MAX_H) h = HDB_OVERLAY_MAX_H;
 
@@ -260,21 +321,40 @@ void HDB_CaptureFrame() {
 		if (dst != o.front && dst != o.reading) break;
 	if (dst >= HDB_OVERLAY_BUFFERS) return;
 
-	const uint32_t key = g_shm->overlay_key_rgb;
-	const int kr = (key >> 16) & 0xFF, kg = (key >> 8) & 0xFF, kb = key & 0xFF;
-	const int tol = (int)g_shm->overlay_key_tolerance;
-
 	uint8_t* out = o.pixels[dst];
-	for (uint32_t y = 0; y < h; ++y) {
-		const uint8_t* row = buf.Data() + (g_flip ? (h - 1 - y) : y) * pitch;
-		uint8_t* drow = out + y * w * 4;
-		for (uint32_t x = 0; x < w; ++x) {
-			const uint8_t* s = row + x * bpp;
-			const int r = bpp == 4 ? s[2] : s[0], g = s[1], b = bpp == 4 ? s[0] : s[2];
-			const int d = abs(r - kr) + abs(g - kg) + abs(b - kb);
-			uint8_t* p = drow + x * 4;
-			if (d <= tol) { p[0] = p[1] = p[2] = p[3] = 0; }
-			else          { p[0] = (uint8_t)b; p[1] = (uint8_t)g; p[2] = (uint8_t)r; p[3] = 255; }
+	if (g_void_mode == 1) {
+		for (uint32_t y = 0; y < h; ++y) {
+			uint8_t* p = out + y * w * 4;
+			for (uint32_t x = 0; x < w; ++x, p += 4) {
+				int br, bg, bb, wr, wg, wb;
+				Rgb(first, x, y, br, bg, bb);
+				Rgb(second, x, y, wr, wg, wb);
+				// opacity per channel; additive light (which turns white
+				// white) shows as its brightest channel
+				int a = 255 - (wr - br);
+				a = std::max(a, 255 - (wg - bg));
+				a = std::max(a, 255 - (wb - bb));
+				if (a > 255) a = 255;
+				if (a <= 2) { p[0] = p[1] = p[2] = p[3] = 0; continue; }
+				p[0] = (uint8_t)std::min(255, (bb * 255 + a / 2) / a);
+				p[1] = (uint8_t)std::min(255, (bg * 255 + a / 2) / a);
+				p[2] = (uint8_t)std::min(255, (br * 255 + a / 2) / a);
+				p[3] = (uint8_t)a;
+			}
+		}
+	} else {
+		const uint32_t key = g_shm->overlay_key_rgb;
+		const int kr = (key >> 16) & 0xFF, kg = (key >> 8) & 0xFF, kb = key & 0xFF;
+		const int tol = (int)g_shm->overlay_key_tolerance;
+		for (uint32_t y = 0; y < h; ++y) {
+			uint8_t* p = out + y * w * 4;
+			for (uint32_t x = 0; x < w; ++x, p += 4) {
+				int r, g, b;
+				Rgb(first, x, y, r, g, b);
+				const int d = abs(r - kr) + abs(g - kg) + abs(b - kb);
+				if (d <= tol) { p[0] = p[1] = p[2] = p[3] = 0; }
+				else          { p[0] = (uint8_t)b; p[1] = (uint8_t)g; p[2] = (uint8_t)r; p[3] = 255; }
+			}
 		}
 	}
 	o.width[dst] = w;
