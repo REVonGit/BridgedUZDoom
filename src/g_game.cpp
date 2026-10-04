@@ -47,6 +47,7 @@
 #include "filesystem.h"
 #include "fs_findfile.h"
 #include "g_game.h"
+#include "halobridge/halobridge.h"
 #include "g_hub.h"
 #include "g_levellocals.h"
 #include "gi.h"
@@ -2569,8 +2570,11 @@ void G_DoSaveGame (bool okForQuicksave, bool forceQuicksave, FString filename, c
 		savegameManager.NotifyNewSave(filename, description, okForQuicksave, forceQuicksave);
 		BackupSaveName = filename;
 
-		if (longsavemessages) Printf("%s (%s)\n", GStrings.GetString("GGSAVED"), filename.GetChars());
-		else Printf("%s\n", GStrings.GetString("GGSAVED"));
+		// (the HaloDoom bridge's saves, beside Halo's checkpoints, say so
+		// only in the console)
+		const auto level = (PrintFlag)(PRINT_HIGH | (HDB_Active() ? PRINT_NONOTIFY : 0));
+		if (longsavemessages) Printf(level, "%s (%s)\n", GStrings.GetString("GGSAVED"), filename.GetChars());
+		else Printf(level, "%s\n", GStrings.GetString("GGSAVED"));
 	}
 	else
 	{

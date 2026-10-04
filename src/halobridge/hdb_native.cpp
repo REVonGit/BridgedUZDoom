@@ -249,11 +249,11 @@ bool HDB_Init() {
 		opened = OpenShared();
 		if (!opened) std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	}
-	if (!opened) { Printf("HaloDoomBridge: no Halo bridge memory found, running standalone\n"); return false; }
+	if (!opened) { Printf(PRINT_NONOTIFY, "HaloDoomBridge: no Halo bridge memory found, running standalone\n"); return false; }
 
 	if (g_shm->magic != HDB_MAGIC || g_shm->version != HDB_PROTOCOL_VERSION ||
 		g_shm->size != sizeof(hdb_shared)) {
-		Printf("HaloDoomBridge: protocol mismatch (Halo v%u, UZDoom v%u)\n",
+		Printf(PRINT_NONOTIFY, "HaloDoomBridge: protocol mismatch (Halo v%u, UZDoom v%u)\n",
 			g_shm->version, HDB_PROTOCOL_VERSION);
 		CloseShared();
 		return false;
@@ -287,10 +287,10 @@ bool HDB_Init() {
 				AddCommandString(line.GetChars());
 				lines++;
 			}
-			Printf("HaloDoomBridge: ran hdbridge.cfg (%d lines)\n", lines);
+			Printf(PRINT_NONOTIFY, "HaloDoomBridge: ran hdbridge.cfg (%d lines)\n", lines);
 		}
 	}
-	Printf("HaloDoomBridge: attached to Halo (pid %u)\n", g_shm->halo_pid);
+	Printf(PRINT_NONOTIFY, "HaloDoomBridge: attached to Halo (pid %u)\n", g_shm->halo_pid);
 	return true;
 }
 
@@ -399,13 +399,15 @@ void LookUpVoid() {
 	g_void_mode = g_void_tex.isValid() && g_black_tex.isValid() && g_white_tex.isValid() ? 1 : -1;
 	if (g_void_mode == 1) {
 		TexMan.SetTranslation(g_void_tex, g_black_tex);   // from the next frame on
-		Printf("HaloDoomBridge: overlay with true transparency\n");
+		Printf(PRINT_NONOTIFY, "HaloDoomBridge: overlay with true transparency\n");
 	} else {
-		Printf("HaloDoomBridge: HaloDoomBridge.pk3 has no HDBKEYB/HDBKEYW: overlay by colour key\n");
+		Printf(PRINT_NONOTIFY, "HaloDoomBridge: HaloDoomBridge.pk3 has no HDBKEYB/HDBKEYW: overlay by colour key\n");
 	}
 }
 
 } // namespace
+
+bool HDB_Active() { return g_shm != nullptr; }
 
 void HDB_CaptureFrame() {
 	if (!g_shm || !screen) return;
@@ -666,7 +668,7 @@ DEFINE_ACTION_FUNCTION(_HaloBridge, SaveCheckpoint)
 	PARAM_PROLOGUE;
 	if (g_shm) {
 		FString name = G_BuildSaveName("hdb_checkpoint");
-		Printf("HaloDoomBridge: Halo checkpoint: saving %s\n", name.GetChars());
+		Printf(PRINT_NONOTIFY, "HaloDoomBridge: Halo checkpoint: saving %s\n", name.GetChars());
 		G_SaveGame(name.GetChars(), "Halo checkpoint");
 	}
 	return 0;
@@ -679,10 +681,10 @@ DEFINE_ACTION_FUNCTION(_HaloBridge, LoadCheckpoint)
 	if (!g_shm) ACTION_RETURN_BOOL(false);
 	FString name = G_BuildSaveName("hdb_checkpoint");
 	if (!FileExists(name.GetChars())) {
-		Printf("HaloDoomBridge: Halo reverted, but there is no %s\n", name.GetChars());
+		Printf(PRINT_NONOTIFY, "HaloDoomBridge: Halo reverted, but there is no %s\n", name.GetChars());
 		ACTION_RETURN_BOOL(false);
 	}
-	Printf("HaloDoomBridge: Halo reverted: loading %s\n", name.GetChars());
+	Printf(PRINT_NONOTIFY, "HaloDoomBridge: Halo reverted: loading %s\n", name.GetChars());
 	G_LoadGame(name.GetChars(), true);
 	ACTION_RETURN_BOOL(true);
 }

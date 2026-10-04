@@ -183,7 +183,10 @@ enum hdb_event_type {
     HDB_EV_LOADOUT_END      = 9,
     /* Doom -> Halo */
     HDB_EV_DOOM_PLAYER_DIED = 100,
-    HDB_EV_DOOM_TOOK_ITEM   = 101 /* dtype_hash = the item's entity_id: Halo removes it */
+    HDB_EV_DOOM_TOOK_ITEM   = 101,/* dtype_hash = the item's entity_id: Halo removes it */
+    HDB_EV_DOOM_STUCK       = 102,/* dtype_hash = a unit's entity_id: a grenade is stuck
+                                     to it (sent every tic while it is) */
+    HDB_EV_DOOM_ZOOM        = 103 /* dtype_hash = the view's magnification x 1000 */
 };
 
 typedef struct { uint32_t type; float amount; uint32_t dtype_hash; hdb_vec3 source; } hdb_event;
